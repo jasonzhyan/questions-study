@@ -1,0 +1,105 @@
+Website requests should be prioritized over API requests.
+Celery/Rabbit/Django should monitor resource usage and only submit jobs if free proecessors are available or somehow prevent the system from becoming overloaded.
+Mechanism for blocking DoS attacks from large API/website submissions.
+What is the maximum size of the queue?
+Can we remove jobs from the middle of the queue?
+How to deal with informing user that the queue is full?
+
+
+1. celery configure comments
+CELERY_TASK_RESULT_EXPIRES = 18000         celery任务结果有效期  , I think after this time the result queues will be deleted.
+* after testing, It dose work.
+*while Task.apply_async(expires=?) means: Either a int, describing the number of seconds, or a datetime object that describes the absolute time and date of when the task should expire. The task will not be executed after the expiration time.
+
+2. celery界面监控
+安装flower：pip install flower
+启动flower：celery flower
+访问 http://host:5555
+
+3. celery队列
+  1、CELERY_QUEUES（定义celery队列）
+Python代码  收藏代码
+from kombu import Queue  
+CELERY_DEFAULT_QUEUE = 'default'  
+CELERY_QUEUES = (  
+    Queue('default',    routing_key='task.#'),  
+    Queue('feed_tasks', routing_key='feed.#'),  
+)  
+CELERY_DEFAULT_EXCHANGE = 'tasks'  
+CELERY_DEFAULT_EXCHANGE_TYPE = 'topic'  
+CELERY_DEFAULT_ROUTING_KEY = 'task.default'  
+  2、CELERY_ROUTES（用来决定在任务哪个队列上执行）
+Python代码  收藏代码
+CELERY_ROUTES = {  
+        'feeds.tasks.import_feed': {  
+            'queue': 'feed_tasks',  
+            'routing_key': 'feed.import',  
+        },  
+}  
+  3、只让队列单独工作：celery worker -Q feed_tasks
+
+
+4. how do I delete all messages from a single queue:
+
+1) you can directly run this command:
+sudo rabbitmqctl purge_queue queue_name
+
+2) or to delete data from all of the queues, including users and configs. Just Reset it:
+rabbitmqctl stop_app
+rabbitmqctl reset
+rabbitmqctl start_app
+
+3) or use Management Plugin:
+The rabbitmq-management plugin provides an HTTP-based API for management and monitoring of your RabbitMQ server, along with a browser-based UI and a command line tool, rabbitmqadmin. Features include:
+
+Declare, list and delete exchanges, queues, bindings, users, virtual hosts and permissions.
+Monitor queue length, message rates globally and per channel, data rates per connection, etc.
+Send and receive messages.
+Monitor Erlang processes, file descriptors, memory use.
+Export / import object definitions to JSON.
+Force close connections, purge queues.
+
+Getting started
+The management plugin is included in the RabbitMQ distribution. To enable it, use rabbitmq-plugins:
+rabbitmq-plugins enable rabbitmq_management  (when stop: disable)
+
+If you wish to build the plugin from source, it can be built like any other. See the plugin development page for more information.
+
+The web UI is located at: http://server-name:15672/
+
+also only can delete all message in a queue(use purge)
+
+5.How to selectively delete messages from an AMQP (RabbitMQ) queue?
+
+
+I'd like to selectively delete messages from an AMQP queue without even reading them.
+
+The scenario is as follows:
+
+Sending side wants to expire messages of type X based on a fact that new information of type X arrived. Because it's very probable that the subscriber didn't consume latest message of type X yet, publisher should just delete previous X-type messages and put a newest one into the queue. The whole operation should be transparent to the subscriber - in fact he should use something as simple as STOMP to get the messages.
+
+How to do it using AMQP? Or maybe it's more convenient in another messaging protocol?
+
+I'd like to avoid a complicated infrastructure. The whole messaging needed is as simple as above: one queue, one subscriber, one publisher, but the publisher must have an ability to ad-hoc deleting the messages for a given criteria.
+
+The publisher client will use Ruby but actually I'd deal with any language as soon as I discover how to do it in the protocol.
+
+A:
+You cannot currently do this in RabbitMQ (or more generally, in AMQP) automatically. But, here's an easy workaround.
+
+Let's say you want to send three types of messages: Xs, Ys and Zs. If I understand your question correctly, when an X message arrives, you want the broker to forget all other X messages that haven't been delivered.
+
+This is fairly easy to do in RabbitMQ:
+
+the producer declares three queues: X, Y, and Z (they're automatically bound to the default exchange with their names as routing keys, which is exactly what we want),
+when publishing a message, the producer first purges the relevant queue (so, if it's publishing an X message, it first purges the X queue); this effectively removes the outdated messages,
+the consumer simply consumes from the queue it wants (X for X messages, Y for Y messages, etc.); from its point of view, it just has to do a basic.get to get the next relevant message.
+This implies a race condition when two producers send the same type of message at the about the same time. The result is that its possible for the a queue to have two (or more) messages at the same time, but since the number of messages is upper-bounded by the number of producers, and since the superfluous messages are purged on the next publish, this shouldn't be much of a problem.
+
+To summarize, this solution has just one extra step from the optimal solution, namely purge queue X before publishing a message of type X.
+
+If you need any help setting up this configuration, the perfect place to ask for advice is the rabbitmq-discuss mailing list.
+
+
+
+
