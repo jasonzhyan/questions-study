@@ -1,0 +1,17 @@
+Q:Go through mhci code and document how jobs are being batched.
+
+A:
+Step 1. There're 4 important lists of input from the webpage or api post:    seqence_list,    sepicies_list,    allele_list,    lenght_list.
+The last 3 are already or very easily be turned into a list. Then sequence_text can be turned into a list with some funcions.(for example: si = FASTASequenceInput(sequence_text))
+
+Step 2. The last 3 list will be merge into 1 list like this:
+allele_length_list = zip(allele_list, length_list)
+
+Step 3. Based on the predict_method a specific Predictor will be chosen, and call function pridict_many(input-sequences, allele_length_list). 
+
+Step 4. Then the Predictor will call anther function to bacth every sequence to every allele_length in the lists, and return a list of tuples.
+like this:  self.split_prediction_request(sequence_list, allele_length_2tuple_list)
+
+Step 5. At last, Put all the tuples in the list to a function "_do_predict" in a for loop, and get the result.
+
+* Among these, the function "predict_many" is decorated as a celery task and can be remotely executed and parallelized .
